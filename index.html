@@ -2,13 +2,257 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="refresh" content="0; url=261122.html">
-  <script>
-    window.location.replace("261122.html");
-  </script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>성민교회 청소년부 예배 활동</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@200;400;700&family=Noto+Sans+KR:wght@300;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --blob-1: #10b981; /* 기본 전례색 (일반주일 녹색) */
+      --blob-2: #a7f3d0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Montserrat', 'Noto Sans KR', sans-serif;
+      background-color: #fafafa;
+      color: #111111;
+      height: 100dvh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 28px 24px;
+      position: relative;
+    }
+
+    /* 레퍼런스 스타일 오로라 블러 배경 */
+    .aurora {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(65px);
+      z-index: 0;
+      opacity: 0.75;
+      transition: background 0.8s ease;
+    }
+    .blob-top {
+      width: 240px;
+      height: 240px;
+      top: 8%;
+      right: -40px;
+      background: var(--blob-2);
+    }
+    .blob-bottom {
+      width: 320px;
+      height: 320px;
+      bottom: 6%;
+      left: -60px;
+      background: var(--blob-1);
+    }
+
+    /* 상단 헤더 */
+    header {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+    }
+    .season-badge {
+      padding: 5px 10px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(8px);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+    }
+
+    /* 중앙 오버사이즈 타이포그래피 (레퍼런스 오마주) */
+    main {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      user-select: none;
+    }
+    .big-typo {
+      font-size: clamp(76px, 24vw, 130px);
+      font-weight: 200;
+      line-height: 0.88;
+      letter-spacing: -0.04em;
+      text-align: center;
+      color: #111;
+    }
+    .big-typo span {
+      display: block;
+    }
+    .big-typo .accent {
+      font-weight: 400;
+      margin-left: 18px;
+    }
+
+    /* 하단 안내 및 진행바 */
+    footer {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+    .info-text {
+      font-size: 13px;
+      line-height: 1.55;
+      font-weight: 500;
+      color: #222;
+    }
+    .info-text small {
+      display: block;
+      font-size: 11px;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    .skip-btn {
+      text-decoration: none;
+      color: #111;
+      font-size: 24px;
+      font-weight: 300;
+      padding: 8px;
+      line-height: 1;
+    }
+
+    /* 하단 로딩 진행 바 */
+    .progress-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 3px;
+      background: #111;
+      width: 0%;
+      animation: fillBar 2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    @keyframes fillBar {
+      to { width: 100%; }
+    }
+  </style>
 </head>
 <body>
-  <p>활동 페이지로 이동 중입니다... <a href="261122.html">바로 이동하기</a></p>
+
+  <!-- 배경 그라데이션 블러 -->
+  <div class="aurora blob-top"></div>
+  <div class="aurora blob-bottom"></div>
+
+  <!-- 상단 영역 -->
+  <header>
+    <span>SMCH YOUTH</span>
+    <span class="season-badge" id="seasonLabel">일반주일 · 창조절</span>
+  </header>
+
+  <!-- 중앙 타이포그래피 -->
+  <main>
+    <div class="big-typo">
+      <span>WO</span>
+      <span class="accent">RS</span>
+      <span>HIP</span>
+    </div>
+  </main>
+
+  <!-- 하단 영역 -->
+  <footer>
+    <div class="info-text">
+      성민교회 청소년부<br>
+      오늘의 말씀 활동으로 이동합니다.
+      <small id="targetDateText">Loading activity...</small>
+    </div>
+    <a href="#" id="directLink" class="skip-btn" aria-label="바로 이동">↓</a>
+  </footer>
+
+  <div class="progress-bar"></div>
+
+  <script>
+    // ==========================================
+    // ★ 매주 여기 파일명만 변경해 주세요! ★
+    const TARGET_FILE = "261122.html";
+    // ==========================================
+
+    // 링크 연결
+    document.getElementById("directLink").href = TARGET_FILE;
+    document.getElementById("targetDateText").textContent = "File: " + TARGET_FILE;
+
+    // 교회력(전례색) 자동 계산 함수
+    function applyLiturgicalSeason() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      const date = now.getDate();
+
+      // 부활절(Easter) 계산 (Meeus/Jones/Butcher 알고리즘)
+      const a = year % 19;
+      const b = Math.floor(year / 100);
+      const c = year % 100;
+      const d = Math.floor(b / 4);
+      const e = b % 4;
+      const f = Math.floor((b + 8) / 25);
+      const g = Math.floor((b - f + 1) / 3);
+      const h = (19 * a + b - d - g + 15) % 30;
+      const i = Math.floor(c / 4);
+      const k = c % 4;
+      const l = (32 + 2 * e + 2 * i - h - k) % 7;
+      const m = Math.floor((a + 11 * h + 22 * l) / 451);
+      const easterMonth = Math.floor((h + l - 7 * m + 114) / 31);
+      const easterDay = ((h + l - 7 * m + 114) % 31) + 1;
+
+      const easter = new Date(year, easterMonth - 1, easterDay);
+      const ashWednesday = new Date(easter); ashWednesday.setDate(easter.getDate() - 46); // 재의 수요일
+      const pentecost = new Date(easter); pentecost.setDate(easter.getDate() + 49);       // 성령강림주일
+
+      // 대림절 첫 주일 계산 (11월 30일에서 가장 가까운 주일)
+      const stAndrew = new Date(year, 10, 30);
+      const adventStart = new Date(stAndrew);
+      adventStart.setDate(30 - stAndrew.getDay());
+
+      const christmas = new Date(year, 11, 25);
+      const epiphany = new Date(year, 0, 6);
+
+      let season = { name: "일반주일 · 녹색절", c1: "#10b981", c2: "#a7f3d0" }; // 초록
+
+      if ((month === 12 && date >= 25) || (month === 1 && date <= 6)) {
+        season = { name: "성탄절 · 화이트/골드", c1: "#f59e0b", c2: "#fde68a" }; // 골드
+      } else if (now >= adventStart && now < christmas) {
+        season = { name: "대림절 · 보라색", c1: "#7c3aed", c2: "#ddd6fe" }; // 보라
+      } else if (now >= ashWednesday && now < easter) {
+        season = { name: "사순절 · 보라색", c1: "#6d28d9", c2: "#c4b5fd" }; // 보라
+      } else if (now >= easter && now < pentecost) {
+        season = { name: "부활절 · 화이트/골드", c1: "#eab308", c2: "#fef08a" }; // 골드
+      } else if (
+        now.getFullYear() === pentecost.getFullYear() &&
+        now.getMonth() === pentecost.getMonth() &&
+        now.getDate() === pentecost.getDate()
+      ) {
+        season = { name: "성령강림절 · 붉은색", c1: "#ef4444", c2: "#fecaca" }; // 빨강
+      }
+
+      document.documentElement.style.setProperty("--blob-1", season.c1);
+      document.documentElement.style.setProperty("--blob-2", season.c2);
+      document.getElementById("seasonLabel").textContent = season.name;
+    }
+
+    applyLiturgicalSeason();
+
+    // 2초 후 해당 주차 파일로 자동 이동
+    setTimeout(() => {
+      window.location.replace(TARGET_FILE);
+    }, 2000);
+  </script>
 </body>
 </html>
