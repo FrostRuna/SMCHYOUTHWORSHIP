@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>마음의 왕좌 (약 3.5분) — 실시간 참여형 활동</title>
+    <title>마음의 왕좌 (약 2분) — 실시간 참여형 활동</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- QRCode.js (실시간 학생 접속 QR 코드 생성용) -->
@@ -232,13 +232,13 @@
                     </span>
                 </div>
 
-                <!-- 중앙: 3.5분 (210초) 활동 타이머 -->
+                <!-- 중앙: 2분 (120초) 활동 타이머 -->
                 <div id="timer-box" class="flex items-center gap-2 sm:gap-3 px-3.5 py-1.5 rounded-2xl bg-slate-800/70 border border-slate-600/40 backdrop-blur-md shadow-lg transition-colors duration-700">
                     <div class="flex items-center gap-1.5">
                         <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
-                        <span id="timer-display" class="font-mono text-base sm:text-xl font-bold tracking-wider text-amber-300">03:30</span>
+                        <span id="timer-display" class="font-mono text-base sm:text-xl font-bold tracking-wider text-amber-300">02:00</span>
                     </div>
                     <div class="h-4 w-[1px] bg-slate-500/40"></div>
                     <button id="timer-toggle-btn" onclick="toggleTimer()" class="p-1 rounded-lg hover:bg-white/10 text-xs sm:text-sm font-medium transition flex items-center gap-1" title="타이머 시작/일시정지">
@@ -517,7 +517,7 @@
         }
 
         // 활동 상태 변수
-        let timerSeconds = 210; // 3분 30초
+        let timerSeconds = 120; // 2분 (120초)
         let timerInterval = null;
         let isTimerRunning = false;
         let isCrownPlaced = false;
@@ -986,7 +986,7 @@
             }
         }
 
-        // 타이머 기능 (3분 30초 카운트다운)
+        // 타이머 기능 (2분 카운트다운)
         window.toggleTimer = function() {
             if (isTimerRunning) {
                 clearInterval(timerInterval);
@@ -1004,7 +1004,7 @@
                     } else {
                         clearInterval(timerInterval);
                         isTimerRunning = false;
-                        showToast("⏰ 3분 30초 활동 시간이 완료되었습니다!");
+                        showToast("⏰ 2분 활동 시간이 완료되었습니다!");
                     }
                 }, 1000);
             }
@@ -1013,7 +1013,7 @@
         window.resetTimer = function() {
             clearInterval(timerInterval);
             isTimerRunning = false;
-            timerSeconds = 210;
+            timerSeconds = 120;
             updateTimerDisplay();
             document.getElementById('timer-btn-icon').textContent = '▶';
             document.getElementById('timer-btn-text').textContent = '시작';
