@@ -8,8 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- QRCode.js (실시간 학생 접속 QR 코드 생성용) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <!-- PeerJS (GitHub Pages 등 정적 호스팅에서도 즉시 기기 간 실시간 연동을 지원하는 WebRTC 엔진) -->
-    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <!-- MQTT.js (통신사 LTE/5G 및 방화벽 환경에서도 100% 작동하는 클라우드 실시간 WebSocket 브로커 엔진) -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <!-- Google Fonts: Noto Sans KR & Noto Serif KR -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -132,7 +132,7 @@
 <body class="theme-dark min-h-screen flex flex-col justify-between antialiased">
 
     <!-- ===================================================================== -->
-    <!-- [MODE A] 학생 모바일 참여 화면 (?mode=student 또는 미리보기 전환 시) -->
+    <!-- [MODE A] 학생 모바일 참여 화면 (?mode=student 접속 시)               -->
     <!-- ===================================================================== -->
     <div id="student-view" class="hidden min-h-screen w-full flex flex-col justify-between p-5 sm:p-8 max-w-md mx-auto">
         <!-- 상단 헤더 -->
@@ -141,14 +141,9 @@
                 <span id="student-conn-dot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></span>
                 <span id="student-conn-text" class="text-xs font-bold tracking-wider text-slate-300 uppercase">왕좌 스크린 연결 중...</span>
             </div>
-            <div class="flex items-center gap-2">
-                <span id="student-room-badge" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-amber-400">
-                    ROOM: ----
-                </span>
-                <button id="back-to-leader-btn" onclick="switchMode('leader')" class="hidden px-2.5 py-1 rounded-lg bg-indigo-600/80 hover:bg-indigo-500 text-xs font-bold text-white transition">
-                    스크린 복귀
-                </button>
-            </div>
+            <span id="student-room-badge" class="px-2.5 py-1 rounded-lg bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-amber-400">
+                ROOM: ----
+            </span>
         </header>
 
         <!-- 중앙 입력 폼 영역 -->
@@ -465,164 +460,179 @@
 
         <!-- 하단 상태 바 -->
         <footer class="w-full py-3 px-4 sm:px-8 text-center sm:text-right">
-            <span id="sync-status-label" class="text-[11px] text-amber-400/90 font-medium">● 실시간 수신 서버 준비 중...</span>
+            <span id="sync-status-label" class="text-[11px] text-amber-400/90 font-medium">● 실시간 클라우드 서버 연결 중...</span>
         </footer>
     </div>
 
 
     <!-- ===================================================================== -->
-    <!-- 실시간 P2P(WebRTC) & 로컬 연동 로직                                   -->
+    <!-- [모달 1] 학생 QR 접속 모달                                            -->
+    <!-- ===================================================================== -->
+    <div id="qr-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-md w-full p-6 text-slate-100 shadow-2xl space-y-5 relative">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 class="text-lg font-black text-emerald-400 flex items-center gap-2">
+                    <span>📱</span>
+                    <span>학생 모바일 실시간 접속</span>
+                </h3>
+                <button onclick="toggleQrModal()" class="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition">✕</button>
+            </div>
+
+            <div class="text-center space-y-3">
+                <div class="inline-block p-4 bg-white rounded-2xl shadow-xl">
+                    <div id="qr-code-box" class="w-[180px] h-[180px] flex items-center justify-center"></div>
+                </div>
+                <div class="space-y-1">
+                    <p class="text-xs text-slate-400">스마트폰 카메라로 QR 코드를 스캔하세요</p>
+                    <p class="text-sm font-mono font-black text-amber-400">방 코드: <span id="modal-room-code">----</span></p>
+                </div>
+            </div>
+
+            <div class="pt-1">
+                <button type="button" onclick="copyStudentLink()" class="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm shadow-lg transition">
+                    🔗 학생 참여 링크 복사하기
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- [모달 2] 리더 노트 모달                                               -->
+    <!-- ===================================================================== -->
+    <!-- 실시간 클라우드 MQTT(WSS) 연동 로직 (모든 통신망/방화벽 호환)         -->
     <!-- ===================================================================== -->
     <script>
-        // 1. URL 파라미터 파싱 (?mode=student & ?room=XXXX)
+        // URL 파라미터 기반 모드 및 방 코드 초기화
         const urlParams = new URLSearchParams(window.location.search);
-        let appMode = urlParams.get('mode') === 'student' ? 'student' : 'leader';
-        let roomCode = urlParams.get('room');
+        const appMode = urlParams.get('mode') === 'student' ? 'student' : 'leader';
+        let roomCode = (urlParams.get('room') || '').toUpperCase();
+
         if (!roomCode) {
-            roomCode = Math.floor(1000 + Math.random() * 9000).toString();
-            if (appMode === 'leader' && !window.location.href.startsWith('blob:')) {
-                try {
-                    const newUrl = new URL(window.location.href);
-                    newUrl.searchParams.set('room', roomCode);
-                    window.history.replaceState({}, '', newUrl);
-                } catch (e) {
-                    console.warn("History replaceState skipped:", e);
-                }
-            }
+            roomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+            try {
+                const newUrl = new URL(window.location.href);
+                newUrl.searchParams.set('room', roomCode);
+                window.history.replaceState({}, '', newUrl.toString());
+            } catch (e) {}
         }
 
-        // 2. 상태 변수
+        // 활동 상태 변수
         let timerSeconds = 210; // 3분 30초
         let timerInterval = null;
         let isTimerRunning = false;
-        let basketCount = 0;
         let isCrownPlaced = false;
         let isStonesInBasket = false;
+        let basketCount = 0;
 
         // 화면에 렌더링된 돌 목록 관리 (id -> { text, slotIndex })
         let renderedStones = new Map();
 
-        // PeerJS 실시간 통신 인스턴스 (GitHub Pages에서 별도 서버 없이 기기 간 실시간 통신)
-        let peer = null;
-        let studentConn = null;
-        let isPeerConnected = false;
-        const PEER_PREFIX = 'throne-of-heart-room-';
+        // MQTT 실시간 클라우드 브로커 인스턴스 (LTE/5G 및 기관 와이파이 방화벽을 100% 통과하는 표준 WSS 통신)
+        let mqttClient = null;
+        let isBrokerConnected = false;
+        const TOPIC_PREFIX = 'kr/youth/throne-of-heart/room/';
+        const BROKER_URLS = [
+            'wss://broker.emqx.io:8084/mqtt',
+            'wss://broker.hivemq.com:8884/mqtt'
+        ];
+        let currentBrokerIdx = 0;
 
-        // 왕좌 의자 내부 좌표계(viewBox 340x380 기준: 엉덩이 받침 쿠션 Y 57%~61% 위에서부터 차곡차곡 쌓이는 20개 슬롯)
+        // 왕좌 의자 내부 좌표계(viewBox 340x380 기준: 엉덩이 받침 쿠션 Y 53% 위에서부터 등받이 아치 안쪽으로 차곡차곡 쌓이는 20개 슬롯)
         const STONE_SLOTS = [
-            // 1층 (왕좌 엉덩이 받침 쿠션 바로 위 바닥 라인: Y 58~60%)
-            { top: 59, left: 32, rot: -4, shape: '46% 54% 52% 48% / 55% 45% 55% 45%' },
-            { top: 60, left: 50, rot: 2,  shape: '52% 48% 45% 55% / 48% 52% 48% 52%' },
-            { top: 59, left: 68, rot: 4,  shape: '44% 56% 50% 50% / 52% 48% 54% 46%' },
-            // 2층 (쿠션 위 2단 피라미드 정렬: Y 51~52%)
-            { top: 52, left: 39, rot: 5,  shape: '50% 50% 44% 56% / 56% 44% 50% 50%' },
-            { top: 52, left: 61, rot: -5, shape: '48% 52% 54% 46% / 46% 54% 48% 52%' },
-            { top: 51, left: 28, rot: -7, shape: '54% 46% 48% 52% / 52% 48% 46% 54%' },
-            { top: 51, left: 72, rot: 7,  shape: '45% 55% 52% 48% / 50% 50% 54% 46%' },
-            // 3층 (쿠션~등받이 하단: Y 44~45%)
-            { top: 44, left: 34, rot: -3, shape: '52% 48% 50% 50% / 45% 55% 52% 48%' },
-            { top: 45, left: 50, rot: 3,  shape: '47% 53% 46% 54% / 53% 47% 49% 51%' },
-            { top: 44, left: 66, rot: -4, shape: '53% 47% 54% 46% / 48% 52% 45% 55%' },
-            // 4층 (등받이 하단: Y 37~38%)
-            { top: 37, left: 40, rot: 5,  shape: '46% 54% 48% 52% / 54% 46% 52% 48%' },
-            { top: 37, left: 60, rot: -5, shape: '51% 49% 53% 47% / 47% 53% 50% 50%' },
-            { top: 36, left: 29, rot: -6, shape: '49% 51% 45% 55% / 51% 49% 54% 46%' },
-            { top: 36, left: 71, rot: 6,  shape: '55% 45% 51% 49% / 49% 51% 46% 54%' },
-            // 5층 (등받이 중단: Y 29~30%)
-            { top: 29, left: 36, rot: -3, shape: '48% 52% 52% 48% / 53% 47% 48% 52%' },
-            { top: 30, left: 50, rot: 3,  shape: '52% 48% 47% 53% / 46% 54% 52% 48%' },
-            { top: 29, left: 64, rot: -4, shape: '45% 55% 50% 50% / 52% 48% 47% 53%' },
-            // 6층 (등받이 상단: Y 21~22%)
-            { top: 22, left: 42, rot: 4,  shape: '50% 50% 54% 46% / 48% 52% 53% 47%' },
-            { top: 22, left: 58, rot: -4, shape: '47% 53% 48% 52% / 54% 46% 49% 51%' },
-            { top: 16, left: 50, rot: 2,  shape: '53% 47% 51% 49% / 50% 50% 47% 53%' }
+            // 1층: 좌석 쿠션 바로 위 중앙~좌우 (4개)
+            { top: 53, left: 50, rot: -2, shape: '48% 52% 45% 55% / 55% 45% 55% 45%' },
+            { top: 53, left: 37, rot: 4,  shape: '54% 46% 52% 48% / 48% 54% 46% 52%' },
+            { top: 53, left: 63, rot: -4, shape: '45% 55% 48% 52% / 52% 48% 54% 46%' },
+            { top: 47, left: 50, rot: 2,  shape: '52% 48% 54% 46% / 46% 52% 48% 54%' },
+            // 2층: 좌석 위 중단 (4개)
+            { top: 47, left: 36, rot: -3, shape: '46% 54% 48% 52% / 54% 46% 52% 48%' },
+            { top: 47, left: 64, rot: 3,  shape: '53% 47% 46% 54% / 47% 53% 54% 46%' },
+            { top: 41, left: 43, rot: -2, shape: '49% 51% 53% 47% / 51% 49% 47% 53%' },
+            { top: 41, left: 57, rot: 4,  shape: '51% 49% 47% 53% / 49% 51% 53% 47%' },
+            // 3층: 등받이 중앙부 (4개)
+            { top: 41, left: 32, rot: -5, shape: '47% 53% 51% 49% / 53% 47% 49% 51%' },
+            { top: 41, left: 68, rot: 5,  shape: '53% 47% 49% 51% / 47% 53% 51% 49%' },
+            { top: 35, left: 50, rot: -1, shape: '48% 52% 46% 54% / 54% 46% 52% 48%' },
+            { top: 35, left: 37, rot: 3,  shape: '52% 48% 54% 46% / 46% 54% 48% 52%' },
+            // 4층: 등받이 상단부 (4개)
+            { top: 35, left: 63, rot: -3, shape: '46% 54% 52% 48% / 52% 48% 46% 54%' },
+            { top: 29, left: 44, rot: 2,  shape: '54% 46% 48% 52% / 48% 52% 54% 46%' },
+            { top: 29, left: 56, rot: -2, shape: '47% 53% 52% 48% / 52% 48% 47% 53%' },
+            { top: 23, left: 50, rot: 1,  shape: '51% 49% 48% 52% / 48% 52% 51% 49%' },
+            // 5층: 등받이 아치 최상단 (4개)
+            { top: 29, left: 34, rot: -4, shape: '49% 51% 54% 46% / 51% 49% 46% 54%' },
+            { top: 29, left: 66, rot: 4,  shape: '51% 49% 46% 54% / 49% 51% 54% 46%' },
+            { top: 22, left: 41, rot: -2, shape: '48% 52% 50% 50% / 52% 48% 50% 50%' },
+            { top: 22, left: 59, rot: 2,  shape: '52% 48% 50% 50% / 48% 52% 50% 50%' }
         ];
 
         // =====================================================================
-        // 실시간 PeerJS 초기화 (GitHub Pages에서 스크린 <-> 학생 폰 직통 연결)
+        // 실시간 클라우드 MQTT 초기화 (LTE/5G <-> 와이파이 교차 환경에서도 즉시 연동)
         // =====================================================================
-        function initRealtimePeer() {
-            if (typeof Peer === 'undefined') {
-                updateSyncLabel("실시간 통신 모듈 로드 실패 (로컬 모드)", "text-rose-400");
+        function initRealtimeBroker() {
+            if (typeof mqtt === 'undefined') {
+                updateSyncLabel("실시간 통신 모듈 로드 실패 (새로고침 필요)", "text-rose-400");
+                setStudentConnUI(false, "모듈 로드 실패 — 새로고침 해주세요");
                 return;
             }
 
+            const brokerUrl = BROKER_URLS[currentBrokerIdx % BROKER_URLS.length];
+            const clientId = `throne-${appMode}-${roomCode}-${Math.random().toString(36).slice(2, 8)}`;
+            const topic = `${TOPIC_PREFIX}${roomCode}/stones`;
+
             if (appMode === 'leader') {
-                // 리더(스크린)는 고유 방 ID(throne-of-heart-room-XXXX)로 호스트 개설
-                const hostId = PEER_PREFIX + roomCode;
-                peer = new Peer(hostId, { debug: 1 });
+                updateSyncLabel("실시간 클라우드 서버 연결 중...", "text-amber-400");
+            } else {
+                setStudentConnUI(false, "왕좌 서버 연결 중...");
+            }
 
-                peer.on('open', (id) => {
-                    isPeerConnected = true;
-                    updateSyncLabel(`실시간 수신 대기 중 (방 코드: ${roomCode})`, "text-emerald-400");
-                });
+            mqttClient = mqtt.connect(brokerUrl, {
+                clientId: clientId,
+                clean: true,
+                connectTimeout: 8000,
+                reconnectPeriod: 2000
+            });
 
-                // 학생 스마트폰이 접속하여 데이터를 보낼 때 수신
-                peer.on('connection', (conn) => {
-                    conn.on('data', (payload) => {
-                        if (payload && payload.type === 'ADD_STONE' && payload.word) {
-                            const stoneId = payload.id || ('peer-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6));
-                            renderSingleBlackStoneOnThrone(stoneId, payload.word, true);
-                            // 학생 스마트폰에 정상 수신 확인 응답 전송
-                            if (conn.open) {
-                                conn.send({ type: 'ACK', id: stoneId });
-                            }
+            mqttClient.on('connect', () => {
+                isBrokerConnected = true;
+                if (appMode === 'leader') {
+                    mqttClient.subscribe(topic, { qos: 1 }, (err) => {
+                        if (!err) {
+                            updateSyncLabel(`실시간 수신 중 (방 코드: ${roomCode})`, "text-emerald-400");
                         }
                     });
-                });
+                } else {
+                    setStudentConnUI(true, "왕좌 스크린 실시간 연결 완료");
+                }
+            });
 
-                peer.on('error', (err) => {
-                    console.warn("Leader Peer error:", err);
-                    if (err.type === 'unavailable-id') {
-                        // 동일 방 코드가 이미 열려있을 경우 새 코드 발급
-                        roomCode = Math.floor(1000 + Math.random() * 9000).toString();
-                        const inlineCode = document.getElementById('inline-room-code');
-                        if (inlineCode) inlineCode.textContent = roomCode;
-                        initRealtimePeer();
-                    } else {
-                        updateSyncLabel("네트워크 재연결 시도 중...", "text-amber-400");
+            mqttClient.on('message', (receivedTopic, messageBuffer) => {
+                if (appMode !== 'leader') return;
+                try {
+                    const payload = JSON.parse(messageBuffer.toString());
+                    if (payload && payload.type === 'ADD_STONE' && payload.word) {
+                        const stoneId = payload.id || ('mq-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6));
+                        renderSingleBlackStoneOnThrone(stoneId, payload.word, true);
                     }
-                });
+                } catch (e) {
+                    console.warn("메시지 파싱 오류:", e);
+                }
+            });
 
-                peer.on('disconnected', () => {
-                    if (peer && !peer.destroyed) peer.reconnect();
-                });
-
-            } else {
-                // 학생(모바일)은 익명 ID로 생성 후 리더 방 ID에 직통 연결
-                peer = new Peer({ debug: 1 });
-
-                peer.on('open', () => {
-                    connectToLeaderHost();
-                });
-
-                peer.on('error', (err) => {
-                    console.warn("Student Peer error:", err);
+            mqttClient.on('reconnect', () => {
+                isBrokerConnected = false;
+                if (appMode === 'leader') {
+                    updateSyncLabel("서버 재연결 중...", "text-amber-400");
+                } else {
                     setStudentConnUI(false, "연결 재시도 중...");
-                    setTimeout(connectToLeaderHost, 2000);
-                });
-            }
-        }
-
-        function connectToLeaderHost() {
-            if (!peer || peer.destroyed) return;
-            const hostId = PEER_PREFIX + roomCode;
-            studentConn = peer.connect(hostId, { reliable: true });
-
-            studentConn.on('open', () => {
-                isPeerConnected = true;
-                setStudentConnUI(true, "왕좌 스크린 실시간 연결됨");
+                }
             });
 
-            studentConn.on('close', () => {
-                isPeerConnected = false;
-                setStudentConnUI(false, "연결 끊김 — 재연결 중...");
-                setTimeout(connectToLeaderHost, 2000);
-            });
-
-            studentConn.on('error', () => {
-                isPeerConnected = false;
-                setStudentConnUI(false, "스크린을 찾는 중...");
+            mqttClient.on('error', () => {
+                isBrokerConnected = false;
+                if (mqttClient) mqttClient.end(true);
+                currentBrokerIdx++;
+                setTimeout(initRealtimeBroker, 1500);
             });
         }
 
@@ -660,36 +670,26 @@
             const word = input.value.trim();
             if (!word) return;
 
+            if (!mqttClient || !mqttClient.connected) {
+                showToast("왕좌 서버와 연결 중입니다. 1~2초 후 다시 눌러주세요!");
+                return;
+            }
+
             const btn = document.getElementById('student-submit-btn');
             btn.disabled = true;
             btn.innerHTML = '<span>⏳</span> <span>왕좌로 올리는 중...</span>';
 
             const stoneId = 'st-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+            const topic = `${TOPIC_PREFIX}${roomCode}/stones`;
+            const payload = JSON.stringify({ type: 'ADD_STONE', id: stoneId, word: word });
 
             try {
-                // 1. 동일 탭 미리보기 모드인 경우 즉시 화면에도 반영
-                if (!document.getElementById('back-to-leader-btn').classList.contains('hidden')) {
-                    renderSingleBlackStoneOnThrone(stoneId, word, true);
-                }
-
-                // 2. 외부 스마트폰에서 접속한 경우 리더 스크린(PeerJS)으로 실시간 전송
-                if (studentConn && studentConn.open) {
-                    studentConn.send({ type: 'ADD_STONE', id: stoneId, word: word });
-                } else if (peer && !peer.destroyed) {
-                    // 연결이 잠시 닫혀있다면 즉시 재연결 후 전송
-                    await new Promise((resolve) => {
-                        const tempConn = peer.connect(PEER_PREFIX + roomCode, { reliable: true });
-                        const timeout = setTimeout(resolve, 2500);
-                        tempConn.on('open', () => {
-                            tempConn.send({ type: 'ADD_STONE', id: stoneId, word: word });
-                            studentConn = tempConn;
-                            isPeerConnected = true;
-                            setStudentConnUI(true, "왕좌 스크린 실시간 연결됨");
-                            clearTimeout(timeout);
-                            setTimeout(resolve, 200);
-                        });
+                await new Promise((resolve, reject) => {
+                    mqttClient.publish(topic, payload, { qos: 1 }, (err) => {
+                        if (err) reject(err);
+                        else resolve();
                     });
-                }
+                });
 
                 // 제출 완료 UI 표시
                 document.getElementById('submitted-stone-preview').textContent = word;
@@ -697,7 +697,7 @@
                 document.getElementById('student-success-box').classList.remove('hidden');
                 input.value = '';
             } catch (err) {
-                showToast("전송 중 오류가 발생했습니다. 다시 시도해 주세요.");
+                showToast("전송에 실패했습니다. 다시 시도해 주세요.");
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = '<span>🪨</span> <span>검은 돌 왕좌에 올려놓기</span>';
@@ -1026,36 +1026,11 @@
         }
 
         // QR 코드 생성 및 학생 참여 링크 관리
-        let customBaseUrl = '';
-
-        window.applyCustomBaseUrl = function() {
-            const input = document.getElementById('custom-base-url');
-            if (input && input.value.trim()) {
-                customBaseUrl = input.value.trim();
-                generateQrCode();
-                showToast("입력하신 주소로 QR 코드가 갱신되었습니다.");
-            }
-        };
-
         function getStudentJoinUrl() {
-            try {
-                if (customBaseUrl) {
-                    const url = new URL(customBaseUrl);
-                    url.searchParams.set('mode', 'student');
-                    url.searchParams.set('room', roomCode);
-                    return url.toString();
-                }
-                // blob: URL일 경우 내부의 실제 http(s) URL 추출
-                const rawHref = window.location.href.startsWith('blob:')
-                    ? window.location.href.slice(5)
-                    : window.location.href;
-                const url = new URL(rawHref);
-                url.searchParams.set('mode', 'student');
-                url.searchParams.set('room', roomCode);
-                return url.toString();
-            } catch (e) {
-                return `${window.location.origin}/?mode=student&room=${roomCode}`;
-            }
+            const url = new URL(window.location.href);
+            url.searchParams.set('mode', 'student');
+            url.searchParams.set('room', roomCode);
+            return url.toString();
         }
 
         function generateQrCode() {
@@ -1064,29 +1039,14 @@
             qrContainer.innerHTML = '';
             document.getElementById('modal-room-code').textContent = roomCode;
 
-            // 임시 blob/로컬 환경일 경우 안내 배너 표시
-            const warningBox = document.getElementById('qr-env-warning');
-            if (warningBox) {
-                const isSandbox = window.location.href.startsWith('blob:') || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-                if (isSandbox) {
-                    warningBox.classList.remove('hidden');
-                } else {
-                    warningBox.classList.add('hidden');
-                }
-            }
-
-            try {
-                new QRCode(qrContainer, {
-                    text: getStudentJoinUrl(),
-                    width: 180,
-                    height: 180,
-                    colorDark: "#0f172a",
-                    colorLight: "#ffffff",
-                    correctLevel: QRCode.CorrectLevel.M
-                });
-            } catch (e) {
-                qrContainer.innerHTML = `<div class="text-slate-900 font-bold text-sm">방 코드: ${roomCode}</div>`;
-            }
+            new QRCode(qrContainer, {
+                text: getStudentJoinUrl(),
+                width: 180,
+                height: 180,
+                colorDark: "#0f172a",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.M
+            });
         }
 
         window.copyStudentLink = function() {
@@ -1098,32 +1058,6 @@
             document.execCommand('copy');
             document.body.removeChild(tempInput);
             showToast("학생 참여 링크가 클립보드에 복사되었습니다!");
-        };
-
-        // 동일 화면에서 학생 모바일 모드 전환/미리보기
-        window.switchMode = function(targetMode) {
-            appMode = targetMode;
-            const studentView = document.getElementById('student-view');
-            const leaderView = document.getElementById('leader-view');
-
-            if (targetMode === 'student') {
-                leaderView.classList.add('hidden');
-                studentView.classList.remove('hidden');
-                document.getElementById('student-room-badge').textContent = `ROOM: ${roomCode}`;
-                document.body.className = 'theme-dark min-h-screen flex flex-col justify-between antialiased';
-            } else {
-                studentView.classList.add('hidden');
-                leaderView.classList.remove('hidden');
-                const inlineCode = document.getElementById('inline-room-code');
-                if (inlineCode) inlineCode.textContent = roomCode;
-                applyTheme(isCrownPlaced ? 'gold' : 'dark');
-            }
-        };
-
-        window.previewStudentMobile = function() {
-            window.toggleQrModal();
-            document.getElementById('back-to-leader-btn').classList.remove('hidden');
-            window.switchMode('student');
         };
 
         // 모달 및 드로어 토글 함수들
@@ -1177,12 +1111,22 @@
 
         // 초기 실행
         window.addEventListener('DOMContentLoaded', () => {
-            initRealtimePeer();
+            initRealtimeBroker();
+
+            const studentView = document.getElementById('student-view');
+            const leaderView = document.getElementById('leader-view');
 
             if (appMode === 'student') {
-                window.switchMode('student');
+                leaderView.classList.add('hidden');
+                studentView.classList.remove('hidden');
+                document.getElementById('student-room-badge').textContent = `ROOM: ${roomCode}`;
+                document.body.className = 'theme-dark min-h-screen flex flex-col justify-between antialiased';
             } else {
-                window.switchMode('leader');
+                studentView.classList.add('hidden');
+                leaderView.classList.remove('hidden');
+                const inlineCode = document.getElementById('inline-room-code');
+                if (inlineCode) inlineCode.textContent = roomCode;
+                applyTheme('dark');
             }
         });
     </script>
